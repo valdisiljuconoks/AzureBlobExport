@@ -3,6 +3,7 @@ using System.Configuration;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Blob;
 using Microsoft.WindowsAzure.Storage.Table;
@@ -43,22 +44,38 @@ namespace AzureBlobExport
                 Console.WriteLine($"Downloading from {startIndex} to {(endIndex < siriTableEntities.Count ? endIndex : siriTableEntities.Count)}...");
                 foreach (var entity in batch)
                 {
-                    var vehicleBlob = GetBlobContainer().GetBlockBlobReference(entity.BlobReference);
-                    using (var memoryStream = new MemoryStream())
+                    try
                     {
-                        vehicleBlob.DownloadToStream(memoryStream);
-                        var stream = Encoding.UTF8.GetString(memoryStream.ToArray());
-                        var fileNameParsed = entity.BlobReference.Replace(' ', '_');
-                        fileNameParsed = fileNameParsed.Replace(':', '_');
-
-                        var path = Path.Combine(ConfigurationManager.AppSettings["SaveDirectory"], fileNameParsed + ".txt");
-                        var file = new FileInfo(path);
-
-                        File.WriteAllText(file.FullName, stream);
+                        WriteBlobToDisk(entity);
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine($"ERROR (Entity: {entity.PartitionKey}|{entity.RowKey}): {e.Message}");
+                        Console.WriteLine("Waiting 5 secs for retry...");
+                        Thread.Sleep(TimeSpan.FromSeconds(5));
+                        WriteBlobToDisk(entity);
+                        Console.WriteLine("Successfully download.");
                     }
                 }
 
                 batchIndex++;
+            }
+        }
+
+        private void WriteBlobToDisk(SiriTableEntity entity)
+        {
+            var vehicleBlob = GetBlobContainer().GetBlockBlobReference(entity.BlobReference);
+            using (var memoryStream = new MemoryStream())
+            {
+                vehicleBlob.DownloadToStream(memoryStream);
+                var stream = Encoding.UTF8.GetString(memoryStream.ToArray());
+                var fileNameParsed = entity.BlobReference.Replace(' ', '_');
+                fileNameParsed = fileNameParsed.Replace(':', '_');
+
+                var path = Path.Combine(ConfigurationManager.AppSettings["SaveDirectory"], fileNameParsed + ".txt");
+                var file = new FileInfo(path);
+
+                File.WriteAllText(file.FullName, stream);
             }
         }
 
