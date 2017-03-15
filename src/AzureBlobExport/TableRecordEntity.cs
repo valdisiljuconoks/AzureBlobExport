@@ -1,17 +1,18 @@
 ﻿using System;
+using System.Threading;
 using Microsoft.WindowsAzure.Storage.Table;
 
 namespace AzureBlobExport
 {
-    public class SiriTableEntity : TableEntity
+    public class TableRecordEntity : TableEntity
     {
-        public SiriTableEntity(string uniqueIdentifier, string partitionIdentifer)
+        public TableRecordEntity(string uniqueIdentifier, string partitionIdentifer)
         {
             PartitionKey = partitionIdentifer;
             RowKey = uniqueIdentifier;
         }
 
-        public SiriTableEntity() { }
+        public TableRecordEntity() { }
 
         public DateTime RecordDate { get; set; }
 

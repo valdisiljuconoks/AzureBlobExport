@@ -24,12 +24,12 @@ namespace AzureBlobExport
             return items == null || !items.Any();
         }
 
-        public static IEnumerable<IEnumerable<T>> Split<T>(this IEnumerable<T> source, int count)
+        public static IEnumerable<Tuple<int, IEnumerable<T>>> Split<T>(this IEnumerable<T> source, int count)
         {
             return source
                 .Select((x, i) => new { Index = i, Value = x })
                 .GroupBy(x => x.Index / count)
-                .Select(x => x.Select(v => v.Value).ToList());
+                .Select(x => new Tuple<int, IEnumerable<T>>(x.Key, x.Select(v => v.Value).ToList()));
         }
     }
 }
