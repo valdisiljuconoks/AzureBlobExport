@@ -1,9 +1,10 @@
 ﻿using System;
 using System.Configuration;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Blob;
 using Microsoft.WindowsAzure.Storage.Table;
@@ -12,7 +13,7 @@ namespace AzureBlobExport
 {
     public class CopyFromAzure
     {
-        public void Copy(DateTime dateTimeFrom, DateTime dateTimeTo)
+        public async Task Copy(DateTime dateTimeFrom, DateTime dateTimeTo)
         {
             var table = GetTable();
             var partitionKeyCondition = TableQuery.GenerateFilterCondition("PartitionKey", QueryComparisons.Equal, ConfigurationManager.AppSettings["TablePartionKey"]);
@@ -20,54 +21,53 @@ namespace AzureBlobExport
             var primaryCombination = TableQuery.CombineFilters(partitionKeyCondition, TableOperators.And, beginingOfDataCondition);
             var endOfDataCondition = TableQuery.GenerateFilterCondition("RowKey", QueryComparisons.LessThan, dateTimeTo.ToString("yyyyMMddHHmmssfff"));
             var tableCombination = TableQuery.CombineFilters(primaryCombination, TableOperators.And, endOfDataCondition);
-            var tableOperation = new TableQuery<SiriTableEntity>().Where(tableCombination);
+            var tableOperation = new TableQuery<TableRecordEntity>().Where(tableCombination);
 
             Console.WriteLine($"Getting Blob entities from '{dateTimeFrom}' to '{dateTimeTo}'...");
 
             var queryResult = table.ExecuteQuery(tableOperation);
             var siriTableEntities = queryResult.ToList();
 
-            var batches = siriTableEntities.Split(500);
+            const int batchCount = 512;
+            var batches = siriTableEntities.Split(batchCount);
 
-            Console.WriteLine($"Total item count: {siriTableEntities.Count}");
+            Console.WriteLine($"Total item count: {siriTableEntities.Count} will split into {siriTableEntities.Count / batchCount} batches ({batchCount} each).");
 
             var dir = new DirectoryInfo(ConfigurationManager.AppSettings["SaveDirectory"]);
             if(!dir.Exists)
                 dir.Create();
 
-            var batchIndex = 0;
+            var cloudBlobContainer = GetBlobContainer();
+
+            var sw = new Stopwatch();
+            sw.Start();
+            
             foreach (var batch in batches)
             {
-                var startIndex = batchIndex * 500;
-                var endIndex = batchIndex * 500 + 500;
+                var spin = new ConsoleSpinner();
 
-                Console.WriteLine($"Downloading from {startIndex} to {(endIndex < siriTableEntities.Count ? endIndex : siriTableEntities.Count)}...");
-                foreach (var entity in batch)
-                {
-                    try
-                    {
-                        WriteBlobToDisk(entity);
-                    }
-                    catch (Exception e)
-                    {
-                        Console.WriteLine($"ERROR (Entity: {entity.PartitionKey}|{entity.RowKey}): {e.Message}");
-                        Console.WriteLine("Waiting 5 secs for retry...");
-                        Thread.Sleep(TimeSpan.FromSeconds(5));
-                        WriteBlobToDisk(entity);
-                        Console.WriteLine("Successfully download.");
-                    }
-                }
+                Console.WriteLine($"Downloading batch {batch.Item1}...");
 
-                batchIndex++;
+                var sw2 = new Stopwatch();
+                sw2.Start();
+
+                await batch.Item2.ForEachAsync(entity => WriteBlobToDiskAsyncAsync(entity, cloudBlobContainer), (entity, result) => { spin.Turn(); });
+
+                sw2.Stop();
+                Console.WriteLine($"Took: {sw2.ElapsedMilliseconds}ms");
             }
+
+            sw.Stop();
+            Console.WriteLine($"Total: {sw.Elapsed}");
         }
 
-        private void WriteBlobToDisk(SiriTableEntity entity)
+        private async Task<string> WriteBlobToDiskAsyncAsync(TableRecordEntity entity, CloudBlobContainer cloudBlobContainer)
         {
-            var vehicleBlob = GetBlobContainer().GetBlockBlobReference(entity.BlobReference);
+            var blobReference = cloudBlobContainer.GetBlockBlobReference(entity.BlobReference);
             using (var memoryStream = new MemoryStream())
             {
-                vehicleBlob.DownloadToStream(memoryStream);
+                await blobReference.DownloadToStreamAsync(memoryStream);
+
                 var stream = Encoding.UTF8.GetString(memoryStream.ToArray());
                 var fileNameParsed = entity.BlobReference.Replace(' ', '_');
                 fileNameParsed = fileNameParsed.Replace(':', '_');
@@ -76,6 +76,8 @@ namespace AzureBlobExport
                 var file = new FileInfo(path);
 
                 File.WriteAllText(file.FullName, stream);
+
+                return path;
             }
         }
 

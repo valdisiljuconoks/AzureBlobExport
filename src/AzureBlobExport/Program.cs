@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics;
 using System.Globalization;
 
 namespace AzureBlobExport
@@ -38,7 +39,7 @@ namespace AzureBlobExport
             }
 
             var copyFromAzure = new CopyFromAzure();
-            copyFromAzure.Copy(from, to);
+            copyFromAzure.Copy(from, to).GetAwaiter().GetResult();
 
             Console.WriteLine("Done.");
             Console.ReadLine();
