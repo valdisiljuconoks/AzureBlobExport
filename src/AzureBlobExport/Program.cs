@@ -1,45 +1,50 @@
 ﻿using System;
-using System.Diagnostics;
 using System.Globalization;
 
 namespace AzureBlobExport
 {
-    class Program
+    internal class Program
     {
         public static string inputFrom;
         public static string inputTo;
 
-        static void Main(params string[] args)
+        private static void Main(params string[] args)
         {
-            var from = new DateTime();
-            var to = new DateTime();
+            DateTime? from;
+            DateTime? to;
 
-            if(args.Length == 0)
+            if(args.Length < 1)
             {
                 InputVariables();
 
-                if(!DateTime.TryParse(inputFrom, DateTimeFormatInfo.InvariantInfo, DateTimeStyles.None, out from))
+                from = ParseDateAndTime(inputFrom);
+                if(!from.HasValue)
                 {
-                    Console.WriteLine("DateTime conversion failed. Please try following formats dd.MM.YYYY or dd/MM/YYYY");
+                    Console.WriteLine("DateTime conversion failed. Please try format dd.MM.yyyy");
                     Main();
                 }
 
-                if(!DateTime.TryParse(inputTo, out to))
+                to = ParseDateAndTime(inputTo);
+                if(!to.HasValue)
                 {
-                    Console.WriteLine("DateTime conversion failed. Please try following formats dd.MM.YYYY or dd/MM/YYYY");
+                    Console.WriteLine("DateTime conversion failed. Please try format dd.MM.yyyy");
+                    Main();
                 }
             }
             else
             {
-                if(!DateTime.TryParse(args[0], out from) || !DateTime.TryParse(args[1], out to))
+                from = ParseDateAndTime(inputFrom);
+                to = ParseDateAndTime(inputTo);
+
+                if (!from.HasValue || !to.HasValue)
                 {
-                    Console.WriteLine("DateTime conversion failed. Please try following formats dd.MM.YYYY or dd/MM/YYYY");
+                    Console.WriteLine("DateTime conversion failed. Please try format dd.MM.yyyy");
                     Environment.Exit(0);
                 }
             }
 
             var copyFromAzure = new CopyFromAzure();
-            copyFromAzure.Copy(from, to).GetAwaiter().GetResult();
+            copyFromAzure.Copy(from.Value, to.Value).GetAwaiter().GetResult();
 
             Console.WriteLine("Done.");
             Console.ReadLine();
@@ -47,11 +52,20 @@ namespace AzureBlobExport
 
         private static void InputVariables()
         {
-            Console.Write("Please enter period start datetime in following format dd.MM.YYYY: ");
+            Console.Write("Please enter period start datetime in dd.MM.yyyy format: ");
             inputFrom = Console.ReadLine();
 
-            Console.Write("Please enter period end datetime in following format dd.MM.YYYY: ");
+            Console.Write("Please enter period end datetime in dd.MM.yyyy format: ");
             inputTo = Console.ReadLine();
+        }
+
+        private static DateTime? ParseDateAndTime(string value)
+        {
+            DateTime? date = null;
+            if (DateTime.TryParseExact(value, new [] {"dd.MM.yyyy", "dd.MM.yyyy HH:mm:ss" }, DateTimeFormatInfo.InvariantInfo, DateTimeStyles.None, out DateTime parsedValue))
+                date = parsedValue;
+
+            return date;
         }
     }
 }

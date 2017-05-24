@@ -15,6 +15,8 @@ namespace AzureBlobExport
     {
         public async Task Copy(DateTime dateTimeFrom, DateTime dateTimeTo)
         {
+            Console.WriteLine($"Getting Blob entities from '{dateTimeFrom}' to '{dateTimeTo}'...");
+
             var table = GetTable();
             var partitionKeyCondition = TableQuery.GenerateFilterCondition("PartitionKey", QueryComparisons.Equal, ConfigurationManager.AppSettings["TablePartionKey"]);
             var beginingOfDataCondition = TableQuery.GenerateFilterCondition("RowKey", QueryComparisons.GreaterThan, dateTimeFrom.ToString("yyyyMMddHHmmssfff"));
@@ -22,8 +24,6 @@ namespace AzureBlobExport
             var endOfDataCondition = TableQuery.GenerateFilterCondition("RowKey", QueryComparisons.LessThan, dateTimeTo.ToString("yyyyMMddHHmmssfff"));
             var tableCombination = TableQuery.CombineFilters(primaryCombination, TableOperators.And, endOfDataCondition);
             var tableOperation = new TableQuery<TableRecordEntity>().Where(tableCombination);
-
-            Console.WriteLine($"Getting Blob entities from '{dateTimeFrom}' to '{dateTimeTo}'...");
 
             var queryResult = table.ExecuteQuery(tableOperation);
             var siriTableEntities = queryResult.ToList();
@@ -41,7 +41,7 @@ namespace AzureBlobExport
 
             var sw = new Stopwatch();
             sw.Start();
-            
+
             foreach (var batch in batches)
             {
                 var spin = new ConsoleSpinner();
