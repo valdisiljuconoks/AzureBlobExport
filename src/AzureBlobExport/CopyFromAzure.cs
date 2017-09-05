@@ -1,11 +1,10 @@
 ﻿using System;
-using System.Configuration;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using Microsoft.WindowsAzure.Storage;
+using Microsoft.WindowsAzure.Storage.Auth;
 using Microsoft.WindowsAzure.Storage.Blob;
 using Microsoft.WindowsAzure.Storage.Table;
 
@@ -13,12 +12,34 @@ namespace AzureBlobExport
 {
     public class CopyFromAzure
     {
+        private readonly string _accountName;
+        private readonly string _accessKey;
+        private readonly string _blobContainerName;
+        private readonly string _sasToken;
+        private readonly string _saveDirectory;
+        private readonly string _tableName;
+        private readonly string _tablePartitionKey;
+
+        public CopyFromAzure(string accountName, string accessKey, string sasToken, string tableName, string blobContainerName, string saveDirectory, string tablePartitionKey)
+        {
+            if(!string.IsNullOrEmpty(accessKey) && !string.IsNullOrEmpty(sasToken))
+                throw new ArgumentException("Account Access Key and SAS Token cannot be used together");
+            
+            _accountName = accountName;
+            _accessKey = accessKey;
+            _sasToken = sasToken;
+            _tableName = tableName;
+            _blobContainerName = blobContainerName;
+            _saveDirectory = saveDirectory;
+            _tablePartitionKey = tablePartitionKey;
+        }
+
         public async Task Copy(DateTime dateTimeFrom, DateTime dateTimeTo)
         {
             Console.WriteLine($"Getting Blob entities from '{dateTimeFrom}' to '{dateTimeTo}'...");
 
             var table = GetTable();
-            var partitionKeyCondition = TableQuery.GenerateFilterCondition("PartitionKey", QueryComparisons.Equal, ConfigurationManager.AppSettings["TablePartionKey"]);
+            var partitionKeyCondition = TableQuery.GenerateFilterCondition("PartitionKey", QueryComparisons.Equal, _tablePartitionKey);
             var beginingOfDataCondition = TableQuery.GenerateFilterCondition("RowKey", QueryComparisons.GreaterThan, dateTimeFrom.ToString("yyyyMMddHHmmssfff"));
             var primaryCombination = TableQuery.CombineFilters(partitionKeyCondition, TableOperators.And, beginingOfDataCondition);
             var endOfDataCondition = TableQuery.GenerateFilterCondition("RowKey", QueryComparisons.LessThan, dateTimeTo.ToString("yyyyMMddHHmmssfff"));
@@ -33,7 +54,7 @@ namespace AzureBlobExport
 
             Console.WriteLine($"Total item count: {siriTableEntities.Count} will split into {siriTableEntities.Count / batchCount} batches ({batchCount} each).");
 
-            var dir = new DirectoryInfo(ConfigurationManager.AppSettings["SaveDirectory"]);
+            var dir = new DirectoryInfo(_saveDirectory);
             if(!dir.Exists)
                 dir.Create();
 
@@ -72,7 +93,7 @@ namespace AzureBlobExport
                 var fileNameParsed = entity.BlobReference.Replace(' ', '_');
                 fileNameParsed = fileNameParsed.Replace(':', '_');
 
-                var path = Path.Combine(ConfigurationManager.AppSettings["SaveDirectory"], fileNameParsed + ".txt");
+                var path = Path.Combine(_saveDirectory, fileNameParsed + ".txt");
                 var file = new FileInfo(path);
 
                 File.WriteAllText(file.FullName, stream);
@@ -83,33 +104,20 @@ namespace AzureBlobExport
 
         private CloudTable GetTable()
         {
-            var storageAccount = GetCloudStorageAccount();
-            var tableClient = storageAccount.CreateCloudTableClient();
+            var credentials = new StorageCredentials(_accountName, _accessKey);
+            
+            if(!string.IsNullOrEmpty(_sasToken))
+                credentials = new StorageCredentials(_sasToken);
+                
+            var tableClient = new CloudTableClient(new Uri($@"https://{_accountName}.table.core.windows.net/"), credentials);
 
-            var table = tableClient.GetTableReference(ConfigurationManager.AppSettings["TableName"]);
-            table.CreateIfNotExists();
-
+            var table = tableClient.GetTableReference(_tableName);
             return table;
         }
 
         public CloudBlobContainer GetBlobContainer()
         {
-            var storageAccount = GetCloudStorageAccount();
-            var client = storageAccount.CreateCloudBlobClient();
-
-            var container = client.GetContainerReference("siridatafeed");
-
-            container.CreateIfNotExists();
-            container.SetPermissions(new BlobContainerPermissions { PublicAccess = BlobContainerPublicAccessType.Blob });
-
-            return container;
-        }
-
-        private static CloudStorageAccount GetCloudStorageAccount()
-        {
-            var connectionString = ConfigurationManager.ConnectionStrings["TableStorageConnectionString"].ConnectionString;
-            var storageAccount = CloudStorageAccount.Parse(connectionString);
-            return storageAccount;
+            return new CloudBlobContainer(new Uri($@"https://{_accountName}.blob.core.windows.net/{_blobContainerName}?{_sasToken}"));
         }
     }
 }
